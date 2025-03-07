@@ -1,0 +1,23 @@
+# Core Python libraries for data analysis
+numpy
+pandas
+matplotlib
+seaborn
+scipy
+
+# Geographic data visualization
+geopandas
+folium
+shapely
+plotly
+japanmap
+
+# Jupyter Notebook support (for VS Code)
+jupyter
+ipykernel
+
+# Encoding detection (for processing raw data)
+chardet
+
+# Image processing (optional, if using OpenCV)
+opencv-python
