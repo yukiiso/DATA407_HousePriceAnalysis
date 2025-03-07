@@ -1,0 +1,22 @@
+# 🔹 Mac
+.DS_Store
+
+# 🔹 Virtual environment
+venv/
+.venv/
+
+# 🔹 Python cache & compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 🔹 Jupyter Notebook cache & temporary files
+*.ipynb_checkpoints/
+
+# 🔹 Results & logs
+logs/
+*.log
+
+# 🔹 VS Code settings (personal configurations)
+.vscode/
