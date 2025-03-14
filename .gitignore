@@ -20,3 +20,13 @@ logs/
 
 # 🔹 VS Code settings (personal configurations)
 .vscode/
+
+# 🔹 Ignore large CSV files in data/raw/
+data/raw/housing_market/13_Tokyo_20053_20243_en.csv
+data/raw/housing_market/14_Kanagawa Prefecture_20053_20243_en.csv
+data/raw/housing_market/27_Osaka Prefecture_20053_20243_en.csv
+
+# 🔹 Ignore large CSV files in data/encoded/
+data/encoded/housing_market/13_Tokyo_20053_20243_en.csv
+data/encoded/housing_market/14_Kanagawa Prefecture_20053_20243_en.csv
+data/encoded/housing_market_japan.csv
