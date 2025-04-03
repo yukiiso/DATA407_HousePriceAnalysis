@@ -11,6 +11,7 @@ folium
 shapely
 plotly
 japanmap
+scikit-learn
 
 # Jupyter Notebook support (for VS Code)
 jupyter
