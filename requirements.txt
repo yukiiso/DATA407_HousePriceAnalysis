@@ -11,10 +11,10 @@ folium
 shapely
 plotly
 japanmap
-scikit-learn
 
 # Jupyter Notebook support (for VS Code)
 jupyter
+jupyterlab
 ipykernel
 
 # Encoding detection (for processing raw data)
@@ -22,3 +22,6 @@ chardet
 
 # Image processing (optional, if using OpenCV)
 opencv-python
+
+# Machine learning
+scikit-learn
