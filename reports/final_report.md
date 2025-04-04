@@ -1,5 +1,10 @@
-# DATA407 Research Project 
-## Topic: Estimate the average house prices in Japan
+# DATA407 Research Project  
+Topic: Estimate the Average House Prices in Japan  
+
+Yuki Isomura  
+Student ID: 11888757  
+
+---
 
 ## 1. Introduction
 
@@ -7,8 +12,6 @@
 Understanding the housing market is crucial for individuals seeking to purchase a home. In Japan, housing prices vary significantly by region, influenced by factors such as location, accessibility, and property characteristics. However, general consumers often lack access to clear and comprehensive indicators that reflect the overall state of the housing market, including properties that are not currently listed or traded. This lack of holistic information makes it challenging for potential buyers to assess how much they might need to spend to purchase a home under typical conditions.
 
 This project aims to estimate the potential national average house price in Japan by combining actual transaction data with the number of existing residential properties in each prefecture. Instead of focusing solely on prices of recently traded properties, the study estimates what the average house price would be if all existing homes were available on the market. This provides a broader and more realistic benchmark for understanding long-term affordability.
-
-
 
 ### 1.2 Motivation
 When purchasing a home, general consumers are often interested not only in how much properties cost in a specific region, but also in how much is typically required to buy a house in Japan as a whole. By estimating regional prices as well as a nationwide average, this study provides a broader benchmark for understanding housing affordability across the country. Consumers can use this information to compare potential relocation options or to assess whether their budget aligns with typical home prices both locally and nationally.
@@ -323,5 +326,233 @@ Such structure-aware estimation may be useful in real-world housing market analy
 
 
 ## 4. Real Data Analysis
+
+This section applies two estimation methods to the real estate transaction dataset, after first aggregating the data at the prefectural level. The process includes preparing and visualizing the data, followed by implementing both Method A (Ratio Estimation) and Method B (Cluster-Based Weighted Estimation) to compare their results.
+
+### 4.1 Constructing the DataFrame
+
+Initially, a prefecture-level summary is created from the raw dataset and then merged with the housing stock information. The resulting `df_prefecture_stats` contains each prefecture’s average transaction price, standard error (SE), housing stock, and other relevant fields.
+
+**Key Points**  
+- The DataFrame `df` contains all real estate transactions, with each row representing a single record.  
+- The DataFrame `df_housing_stock` contains the housing stock for each prefecture.  
+
+```python
+# Create a new data frame with the number of data, mean, and SE (standard error) for each prefecture
+df_prefecture_stats = (
+    df.groupby("Prefecture")["Total transaction value"]
+    .agg(
+        Count="size",
+        Mean="mean",
+        SE=lambda x: x.std(ddof=1) / np.sqrt(len(x))
+    )
+    .reset_index()
+)
+
+# Read the CSV file that contains housing stock data
+df_housing_stock = pd.read_csv("../data/processed/prefecture_housing_stock.csv")
+
+# Merge the two DataFrames on "Prefecture" (merge result directly into df_prefecture_stats)
+df_prefecture_stats = pd.merge(
+    df_prefecture_stats,
+    df_housing_stock,
+    on="Prefecture",
+    how="left"
+)
+
+df_prefecture_stats.rename(columns={"Total": "Stock"}, inplace=True)
+
+# Convert "Mean" to float
+df_prefecture_stats["Mean"] = pd.to_numeric(
+    df_prefecture_stats["Mean"], errors="coerce"
+)
+```
+
+### 4.2 Visualizing the Average Transaction Price by Prefecture
+Once the DataFrame is prepared, the average transaction price can be plotted on a map to observe regional differences. 
+![Figure 2](../results/figures/pref_map_avg_price.png)
+
+### 4.3 Method A: Ratio Estimation
+Next, Method A (Ratio Estimation) is employed. A national average price is calculated by taking the weighted mean of each prefecture’s average price, with housing stock serving as the weight. The following formulas illustrate the approach:
+\[
+\hat{\mu}_{\text{Ratio}} 
+= \frac{\sum_{i=1}^N w_i \cdot \bar{x}_i}{\sum_{i=1}^N w_i},
+\quad
+SE(\hat{\mu}_{\text{Ratio}}) 
+= \sqrt{
+  \frac{\sum_{i=1}^N w_i^2 \cdot SE_i^2}{
+    \left(\sum_{i=1}^N w_i\right)^2
+  }
+}.
+\]
+
+```python
+# 1. Compute the total housing stock across all prefectures
+W = df_prefecture_stats["Stock"].sum()
+
+# 2. Calculate the weighted mean (Ratio Estimation)
+weighted_mean = (
+    (df_prefecture_stats["Mean"] * df_prefecture_stats["Stock"]).sum() 
+    / W
+)
+
+# 3. Calculate the variance of the weighted mean
+variance = (
+    (df_prefecture_stats["Stock"] ** 2) 
+    * (df_prefecture_stats["SE"] ** 2)
+).sum() / (W ** 2)
+
+# 4. Standard error is the square root of the variance
+std_error = np.sqrt(variance)
+
+# 5. 95% confidence interval
+ci_lower = weighted_mean - 1.96 * std_error
+ci_upper = weighted_mean + 1.96 * std_error
+
+# 6. Print or display the results
+print("Weighted Mean (Method A):", weighted_mean)
+print("Standard Error (Method A):", std_error)
+print("95% CI (Method A): [{:.3f}, {:.3f}]".format(ci_lower, ci_upper))
+```
+
+Output: 
+```
+Weighted Mean (Method A): 32079104.73195155
+Standard Error (Method A): 51653.575027348095
+95% CI (Method A): [31977863.725, 32180345.739]
+```
+### 4.4 Method B: Cluster-Based Weighted Estimation
+In Method B, an unsupervised clustering algorithm (KMeans, in this example) groups prefectures with similar average prices. Cluster-level average prices are then calculated, again weighted by the housing stock. Furthermore, each cluster’s variance is derived from the raw data, rather than relying solely on prefectural-level SE values, which can yield a more robust estimate.
+
+```python
+# 1. Cluster the prefectures based on Mean price
+K = 3  # choose the number of clusters
+
+X = df_prefecture_stats[["Mean"]].values  # 1D (Mean) for clustering
+kmeans = KMeans(n_clusters=K, random_state=42)
+df_prefecture_stats["Cluster"] = kmeans.fit_predict(X)
+
+# 2. Compute cluster-level stats
+# Store results in a list of dicts, then convert to a DataFrame.
+cluster_stats = []
+
+for k in range(K):
+    # 2.1: Identify which prefectures are in cluster k
+    prefectures_in_cluster = df_prefecture_stats.loc[
+        df_prefecture_stats["Cluster"] == k, "Prefecture"
+    ]
+    
+    # 2.2: For cluster mean calculation, we do a weighted average
+    # across prefectures in cluster k
+    cluster_df = df_prefecture_stats[df_prefecture_stats["Cluster"] == k]
+    W_k = cluster_df["Stock"].sum()
+    if W_k == 0:
+        # In case there's an edge case of zero Stock (unlikely), skip
+        continue
+    
+    # Weighted cluster mean:
+    cluster_mean_k = (
+        (cluster_df["Mean"] * cluster_df["Stock"]).sum() 
+        / W_k
+    )
+    
+    # 2.3: Use the raw data from df (all transactions) for cluster's variance
+    # Gather all rows whose Prefecture is in this cluster
+    df_cluster_raw = df[df["Prefecture"].isin(prefectures_in_cluster)]
+    
+    # cluster sample size
+    n_k = len(df_cluster_raw)
+    if n_k <= 1:
+        # Not enough data to compute variance
+        sigma_k_sq = 0.0
+    else:
+        # sample variance of the transaction price
+        sigma_k_sq = df_cluster_raw["Total transaction value"].var(ddof=1)
+    
+    # 2.4: Store the results for cluster k
+    cluster_stats.append({
+        "Cluster": k,
+        "ClusterMean": cluster_mean_k,
+        "W_k": W_k,
+        "sigma_k_sq": sigma_k_sq,
+        "n_k": n_k
+    })
+
+df_clusters = pd.DataFrame(cluster_stats)
+
+# 3. Combine cluster means -> national mean
+W_total = df_clusters["W_k"].sum()
+numerator = (df_clusters["ClusterMean"] * df_clusters["W_k"]).sum()
+mu_cluster = numerator / W_total  # final estimate
+
+# 4. Compute standard error (Method B style)
+# For each cluster, the variance of the cluster mean is (sigma_k_sq / n_k).
+# Then we combine them via ratio formula:
+# Var(mu_Cluster) = (1 / W_total^2) * sum( W_k^2 * (sigma_k_sq / n_k) )
+df_clusters["Var_mean_k"] = df_clusters.apply(
+    lambda row: row["sigma_k_sq"] / row["n_k"] if row["n_k"] > 0 else 0.0,
+    axis=1
+)
+
+var_mu_cluster = (
+    (df_clusters["W_k"] ** 2) * df_clusters["Var_mean_k"]
+).sum() / (W_total ** 2)
+
+se_mu_cluster = np.sqrt(var_mu_cluster)
+
+# 95% CI
+ci_lower = mu_cluster - 1.96 * se_mu_cluster
+ci_upper = mu_cluster + 1.96 * se_mu_cluster
+
+# 5. Print results
+print("=== Cluster-Based Weighted Estimation (Method B) ===")
+print(f"Number of Clusters: {K}")
+print("\nCluster Details:")
+print(df_clusters)
+
+print("\nNational Estimate (Method B):")
+print(f"Weighted Mean: {mu_cluster:.3f}")
+print(f"Standard Error: {se_mu_cluster:.3f}")
+print(f"95% CI: [{ci_lower:.3f}, {ci_upper:.3f}]")
+```
+Output: 
+```
+=== Cluster-Based Weighted Estimation (Method B) ===
+Number of Clusters: 3
+
+Cluster Details:
+   Cluster   ClusterMean       W_k    sigma_k_sq     n_k    Var_mean_k
+0        0  1.962994e+07  26573500  2.902815e+14  188109  1.543156e+09
+1        1  6.733487e+07   8201400  5.040969e+15   46022  1.095339e+11
+2        2  3.345566e+07  30272100  7.147120e+14  241100  2.964380e+09
+
+National Estimate (Method B):
+Weighted Mean: 32079104.732
+Standard Error: 51389.432
+95% CI: [31978381.444, 32179828.019]
+```
+
+### 4.5 Comparing the Results
+Comparisons of the estimated national average and standard error from Methods A and B reveal that although the overall average may be quite similar, Method B can produce a slightly different standard error by aggregating variance at the cluster level. When the sample size is very large, such differences may be relatively small. Nonetheless, clustering offers a means to reduce the influence of outliers and capture regional characteristics.
+
+## 5. Conclusions and Discussion
+The analysis presented in this study provides two complementary estimates for Japan’s national average house price. Both methods yield a mean price of approximately 32 million JPY, with Method A (Ratio Estimation) reporting a standard error of about 51,600 JPY, and Method B (Cluster-Based Weighted Estimation) reporting a slightly smaller standard error of about 51,400 JPY. These values suggest that, despite notable regional variations in housing prices, the nationwide average converges to around the 32-million-JPY mark.
+
+From the perspective of general consumers, these results offer a clearer indication of what a typical home may cost on a national scale. While many buyers focus on local market conditions, having a data-driven benchmark for the entire country helps individuals gauge whether their housing budgets align with broader affordability trends. For instance, those considering relocation can compare local prices to this nationwide average, gaining an understanding of how local price fluctuations compare to the national norm. Additionally, the tight confidence intervals around the estimate (ranging roughly from 31.98 million to 32.18 million JPY) underscore the reliability of the analysis for practical decision-making.
+
+Furthermore, government agencies and policymakers can leverage these estimates for urban development, redevelopment, or land acquisition projects. By knowing that the potential average house price lies in the low-32-million-JPY range, officials can more accurately budget for relocation or compensation plans, especially in large-scale projects where many properties must be acquired or upgraded. The minimal difference in standard errors between Method A and Method B indicates that even when sophisticated clustering techniques are employed, the overall valuation remains consistent—an important factor for long-term policy planning and the allocation of public funds.
+
+Although this report focuses on the overall national estimate, the analysis also yields average prices at the prefectural level. These more granular figures are particularly useful for prospective homebuyers or investors who wish to identify which region best fits their budget or lifestyle preferences. By examining prefecture-specific averages in conjunction with factors such as local amenities, accessibility, and job opportunities, individuals can develop a more informed and personalized strategy for selecting a place to settle.
+
+In summary, these national average estimates—derived from actual transaction data and weighted by the existing housing stock—serve as a robust reference point for both private and public stakeholders. General consumers benefit from a realistic assessment of the capital typically required to purchase a home, while governmental bodies and developers gain a credible baseline to guide large-scale housing policies and project budgets.
+
+## References
+- Ministry of Land, Infrastructure, Transport and Tourism (MLIT). [Real Estate Transaction Price Information](https://www.reinfolib.mlit.go.jp/realEstatePrices/). Accessed March 2025.
+
+- e-Stat. [Portal Site of Official Statistics of Japan: Housing and Land Survey](https://www.e-stat.go.jp/en/dbview?sid=0004021440). Accessed March 2025.
+
+
+
+
 
 
